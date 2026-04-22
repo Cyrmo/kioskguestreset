@@ -26,37 +26,6 @@ class KioskGuestResetBorneModuleFrontController extends ModuleFrontController
     public $display_footer = true;
 
     /**
-     * Génération d'un token CSRF compatible PS8 et PS9
-     */
-    private function generateCsrfToken(): string
-    {
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
-        if (empty($_SESSION['kgr_csrf_token'])) {
-            $_SESSION['kgr_csrf_token'] = bin2hex(random_bytes(32));
-        }
-        return $_SESSION['kgr_csrf_token'];
-    }
-
-    /**
-     * Validation du token CSRF
-     */
-    private function validateCsrfToken(string $token): bool
-    {
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
-        if (empty($_SESSION['kgr_csrf_token'])) {
-            return false;
-        }
-        $valid = hash_equals($_SESSION['kgr_csrf_token'], $token);
-        // Régénérer le token après validation (usage unique)
-        $_SESSION['kgr_csrf_token'] = bin2hex(random_bytes(32));
-        return $valid;
-    }
-
-    /**
      * Désactiver la redirection canonique pour éviter les boucles sur PS9
      */
     protected function canonicalRedirection(string $canonical_url = ''): void
@@ -74,7 +43,21 @@ class KioskGuestResetBorneModuleFrontController extends ModuleFrontController
         parent::initContent();
 
         $idShop = (int) $this->context->shop->id;
-        $error  = '';
+
+        // Si le mode kiosque est déjà actif (cookie valide), rediriger directement vers la boutique
+        if (!Tools::isSubmit('submitPIN') && $this->module->isKioskModeActive()) {
+            $redirectUrl = Configuration::get(
+                KioskGuestReset::CONFIG_REDIRECT_URL,
+                null, null, $idShop
+            );
+            if (empty($redirectUrl)) {
+                $redirectUrl = $this->context->link->getPageLink('index');
+            }
+            Tools::redirect($redirectUrl);
+            return;
+        }
+
+        $error   = '';
         $success = false;
 
         if (Tools::isSubmit('submitPIN')) {
@@ -102,7 +85,6 @@ class KioskGuestResetBorneModuleFrontController extends ModuleFrontController
         $this->context->smarty->assign([
             'kgr_error'        => $error,
             'kgr_kiosk_active' => $this->module->isKioskModeActive(),
-            'kgr_token'        => $this->generateCsrfToken(),
             'module_dir'       => $this->module->getPathUri(),
         ]);
 
@@ -111,13 +93,11 @@ class KioskGuestResetBorneModuleFrontController extends ModuleFrontController
 
     private function handlePinSubmission(int $idShop): array
     {
-        // Validation CSRF (compatible PS8 et PS9)
-        $submittedToken = Tools::getValue('token');
-        if (empty($submittedToken) || !$this->validateCsrfToken($submittedToken)) {
-            return ['success' => false, 'error' => $this->module->l('Token invalide. Veuillez réessayer.', 'borne')];
-        }
-
         // Vérification brute-force
+        // Note : pas de token CSRF ici — la sécurité est assurée par :
+        // 1. Le PIN lui-même (seul le personnel le connaît)
+        // 2. La protection brute-force (5 tentatives / 10 min par IP)
+        // Le token CSRF basé sur $_SESSION est incompatible avec la gestion de session PS9/Symfony
         $ip = $this->getClientIp();
         if ($this->isLocked($ip, $idShop)) {
             return [

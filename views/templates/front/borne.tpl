@@ -52,7 +52,6 @@
             {/if}
 
             <form method="post" action="" class="kgr-form" autocomplete="off">
-                <input type="hidden" name="token" value="{$kgr_token}">
                 <input type="hidden" name="submitPIN" value="1">
 
                 <div class="kgr-pin-container">
