@@ -112,27 +112,43 @@ class KioskGuestReset extends Module
 
     private function setDefaultConfiguration(): bool
     {
-        // Clé secrète unique : générée seulement si absente (ne pas invalider les cookies actifs lors d'une réinstallation)
-        $existingKey = Configuration::get(self::CONFIG_SECRET_KEY);
-        if (empty($existingKey)) {
-            Configuration::updateValue(self::CONFIG_SECRET_KEY, bin2hex(random_bytes(32)));
-        }
+        // Initialiser la configuration pour chaque boutique active
+        // Chaque boutique a sa propre clé secrète (sécurité multi-boutique)
+        foreach (Shop::getShops(true) as $shop) {
+            $idShop  = (int) $shop['id_shop'];
+            $idGroup = (int) $shop['id_shop_group'];
 
-        // Ne pas écraser les valeurs déjà configurées
-        if (!Configuration::get(self::CONFIG_PIN_HASH)) {
-            Configuration::updateValue(self::CONFIG_PIN_HASH, '');
-        }
-        if (!Configuration::get(self::CONFIG_COOKIE_DURATION)) {
-            Configuration::updateValue(self::CONFIG_COOKIE_DURATION, 86400);
-        }
-        if (!Configuration::get(self::CONFIG_REDIRECT_URL)) {
-            Configuration::updateValue(self::CONFIG_REDIRECT_URL, '/');
-        }
-        if (!Configuration::get(self::CONFIG_SHOP_LABEL)) {
-            Configuration::updateValue(self::CONFIG_SHOP_LABEL, 'Borne en boutique');
-        }
-        if (!Configuration::get(self::CONFIG_REDIRECT_DELAY)) {
-            Configuration::updateValue(self::CONFIG_REDIRECT_DELAY, 5);
+            // Clé secrète : générée seulement si absente pour cette boutique
+            // (ne pas invalider les cookies actifs lors d'une réinstallation)
+            if (!Configuration::get(self::CONFIG_SECRET_KEY, null, $idGroup, $idShop)) {
+                Configuration::updateValue(
+                    self::CONFIG_SECRET_KEY,
+                    bin2hex(random_bytes(32)),
+                    false,
+                    $idGroup,
+                    $idShop
+                );
+            }
+
+            // URL de redirection : pointe vers la boutique par défaut
+            if (!Configuration::get(self::CONFIG_REDIRECT_URL, null, $idGroup, $idShop)) {
+                $shopObj    = new Shop($idShop);
+                $defaultUrl = $shopObj->getBaseURL(true);
+                Configuration::updateValue(self::CONFIG_REDIRECT_URL, $defaultUrl, false, $idGroup, $idShop);
+            }
+
+            if (!Configuration::get(self::CONFIG_PIN_HASH, null, $idGroup, $idShop)) {
+                Configuration::updateValue(self::CONFIG_PIN_HASH, '', false, $idGroup, $idShop);
+            }
+            if (!Configuration::get(self::CONFIG_COOKIE_DURATION, null, $idGroup, $idShop)) {
+                Configuration::updateValue(self::CONFIG_COOKIE_DURATION, 86400, false, $idGroup, $idShop);
+            }
+            if (!Configuration::get(self::CONFIG_SHOP_LABEL, null, $idGroup, $idShop)) {
+                Configuration::updateValue(self::CONFIG_SHOP_LABEL, 'Borne en boutique', false, $idGroup, $idShop);
+            }
+            if (!Configuration::get(self::CONFIG_REDIRECT_DELAY, null, $idGroup, $idShop)) {
+                Configuration::updateValue(self::CONFIG_REDIRECT_DELAY, 5, false, $idGroup, $idShop);
+            }
         }
 
         return true;
@@ -149,6 +165,16 @@ class KioskGuestReset extends Module
             self::CONFIG_REDIRECT_DELAY,
         ];
 
+        // Suppression pour chaque boutique (valeurs shop-spécifiques)
+        foreach (Shop::getShops(false) as $shop) {
+            $idShop  = (int) $shop['id_shop'];
+            $idGroup = (int) $shop['id_shop_group'];
+            foreach ($keys as $key) {
+                Configuration::updateValue($key, null, false, $idGroup, $idShop);
+            }
+        }
+
+        // Suppression des éventuelles valeurs globales (héritage)
         foreach ($keys as $key) {
             Configuration::deleteByName($key);
         }
@@ -366,13 +392,9 @@ class KioskGuestReset extends Module
 
     public function isKioskModeActive(): bool
     {
-        // Vérification via la session PHP (prioritaire pour les hooks Symfony PS9)
-        if (session_status() === PHP_SESSION_ACTIVE && !empty($_SESSION['kgr_kiosk_active'])) {
-            return true;
-        }
-
-        // Vérification via le cookie HTTP natif
-        $cookieValue = isset($_COOKIE['kgr_kiosk_active']) ? $_COOKIE['kgr_kiosk_active'] : '';
+        // Le cookie HTTP natif est le seul mécanisme fiable :
+        // disponible dans tous les contextes PHP (FO, hooks Symfony PS9, AJAX)
+        $cookieValue = $_COOKIE['kgr_kiosk_active'] ?? '';
         if (empty($cookieValue)) {
             return false;
         }
@@ -436,19 +458,13 @@ class KioskGuestReset extends Module
     // -------------------------------------------------------------------------
 
     /**
-     * Hook displayHeader : inclure le CSS kiosque si mode actif ET synchroniser la session
+     * Hook displayHeader : inclure le CSS kiosque si mode actif
      */
     public function hookDisplayHeader(array $params): void
     {
         if (!$this->isKioskModeActive()) {
             return;
         }
-
-        // Propager l'état kiosque dans la session PHP pour les hooks Symfony (actionOrderAdd)
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
-        $_SESSION['kgr_kiosk_active'] = true;
 
         $this->context->controller->addCSS(
             $this->_path . 'views/css/kiosk.css'
@@ -559,30 +575,99 @@ class KioskGuestReset extends Module
 
     /**
      * Hook sendMailAlterTemplateVars : injecter les variables kiosque dans les emails
+     *
+     * Deux sources de détection pour couvrir tous les cas :
+     * - isKioskModeActive() : fiable pendant le checkout FO (email de confirmation immédiat)
+     *   car le cookie est présent AVANT que la note soit écrite sur la commande.
+     * - isKioskOrder()      : fiable pour les emails BO ultérieurs (expédition, remboursement…)
+     *   qui s'envoient après que la note a été écrite sur la commande.
+     *
+     * Templates email supportés :
+     * - order_conf      : confirmation client
+     * - backoffice_order: notification admin (PS 1.7+/9)
+     * - new_order       : alias possible selon version/config PS
      */
     public function hookSendMailAlterTemplateVars(array $params): array
     {
-        $order = null;
+        // Initialiser toutes les variables à vide (évite les {var} non remplacés dans les templates)
+        $params['template_vars']['{kgr_is_borne}']           = '0';
+        $params['template_vars']['{kgr_order_origin}']       = '';
+        $params['template_vars']['{kgr_shop_name}']          = '';
+        $params['template_vars']['{kgr_email_block_client}'] = '';
+        $params['template_vars']['{kgr_email_block_bo}']     = '';
 
-        // Récupération de la commande depuis les params
+        // Limiter aux templates concernés (compatibilité multi-versions PS)
+        $supportedTemplates = ['order_conf', 'backoffice_order', 'new_order'];
+        if (!isset($params['template']) || !in_array($params['template'], $supportedTemplates, true)) {
+            return $params;
+        }
+
+        // Identifier la commande
+        $order = null;
         if (isset($params['template_vars']['{id_order}'])) {
             $orderId = (int) $params['template_vars']['{id_order}'];
             $order   = new Order($orderId);
         }
 
-        if ($order instanceof Order && $order->id && $this->isKioskOrder($order)) {
-            $idShop    = (int) $order->id_shop;
-            $shopLabel = Configuration::get(self::CONFIG_SHOP_LABEL, null, null, $idShop);
-            $shopName  = (new Shop($idShop))->name;
+        $isKiosk = $this->isKioskModeActive()
+            || ($order instanceof Order && $order->id && $this->isKioskOrder($order));
 
-            $params['template_vars']['{kgr_is_borne}']      = '1';
-            $params['template_vars']['{kgr_order_origin}']  = $shopLabel;
-            $params['template_vars']['{kgr_shop_name}']     = $shopName;
-        } else {
-            $params['template_vars']['{kgr_is_borne}']      = '0';
-            $params['template_vars']['{kgr_order_origin}']  = '';
-            $params['template_vars']['{kgr_shop_name}']     = '';
+        if (!$isKiosk) {
+            return $params;
         }
+
+        // Récupération du label boutique avec fallback
+        $idShop    = ($order instanceof Order && $order->id_shop)
+            ? (int) $order->id_shop
+            : (int) $this->context->shop->id;
+        $shopLabel = Configuration::get(self::CONFIG_SHOP_LABEL, null, null, $idShop);
+        $shopLabel = ($shopLabel !== false && $shopLabel !== '')
+            ? $shopLabel
+            : $this->l('Borne en boutique');
+        $shopName  = (new Shop($idShop))->name;
+
+        // Variables simples (rétrocompatibilité avec templates utilisant déjà ces variables)
+        $params['template_vars']['{kgr_is_borne}']     = '1';
+        $params['template_vars']['{kgr_order_origin}'] = $shopLabel;
+        $params['template_vars']['{kgr_shop_name}']    = $shopName;
+
+        $shopLabelEsc = htmlspecialchars($shopLabel, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        // Bloc HTML client : fond bleu, ton informatif
+        // Inséré dans order_conf.html via {kgr_email_block_client}
+        // Note : les emails PS n'acceptent pas les conditionnelles Smarty {if},
+        // le bloc est donc construit en PHP et injecté pré-formaté.
+        $params['template_vars']['{kgr_email_block_client}'] =
+            '<table width="100%" cellpadding="0" cellspacing="0" border="0">'
+            . '<tr><td style="padding:0 50px 20px;">'
+            . '<div style="padding:15px 20px;background-color:#f0f7ff;'
+            . 'border-left:4px solid #0070bf;'
+            . 'font-family:Open sans,Arial,sans-serif;font-size:14px;color:#363A41;">'
+            . '<strong style="font-size:15px;">'
+            . '&#x1F3EA; ' . $this->l('Commande passée en magasin')
+            . '</strong><br>'
+            . '<span style="color:#0070bf;">' . $shopLabelEsc . '</span>'
+            . '<br><br>'
+            . $this->l('Votre commande a été enregistrée directement depuis notre borne en boutique.')
+            . '</div>'
+            . '</td></tr></table>';
+
+        // Bloc HTML BO : fond orange, alerte visible pour le personnel
+        // Inséré dans backoffice_order.html et new_order.html via {kgr_email_block_bo}
+        $params['template_vars']['{kgr_email_block_bo}'] =
+            '<table width="100%" cellpadding="0" cellspacing="0" border="0">'
+            . '<tr><td style="padding:0 50px 20px;">'
+            . '<div style="padding:15px 20px;background-color:#fff3cd;'
+            . 'border-left:4px solid #e67e22;'
+            . 'font-family:Open sans,Arial,sans-serif;font-size:14px;color:#363A41;">'
+            . '<strong style="font-size:15px;color:#e67e22;">'
+            . '&#x26A0;&#xFE0F; ' . $this->l('COMMANDE BORNE EN BOUTIQUE')
+            . '</strong><br>'
+            . '<strong>' . $shopLabelEsc . '</strong>'
+            . '<br><br>'
+            . $this->l('Cette commande a été passée depuis la borne en magasin.')
+            . '</div>'
+            . '</td></tr></table>';
 
         return $params;
     }
