@@ -362,25 +362,74 @@ class KioskGuestReset extends Module
 
         $infoHtml = '
         <div class="panel">
-            <div class="panel-heading"><i class="icon-info-circle"></i> ' . $this->l('Informations et instructions') . '</div>
+            <div class="panel-heading"><i class="icon-book"></i> ' . $this->l('Documentation — Mode Kiosque') . '</div>
             <div class="panel-body">
-                <h4>' . $this->l('Comment utiliser la borne ?') . '</h4>
-                <ol>
-                    <li>' . $this->l('Sur la tablette, ouvrez l\'URL :') . ' <code>' . $kioskUrl . '</code></li>
-                    <li>' . $this->l('Saisissez le PIN à 4 chiffres configuré ci-dessous.') . '</li>
-                    <li>' . $this->l('La tablette est redirigée vers la boutique en mode kiosque.') . '</li>
-                    <li>' . $this->l('Après chaque commande, la session est automatiquement nettoyée.') . '</li>
-                </ol>
-                <h4>' . $this->l('Notifications email kiosque') . '</h4>
-                <p>
-                    <span class="label label-success"><i class="icon-check"></i> ' . $this->l('Configuré automatiquement') . '</span>
-                </p>
-                <p>' . $this->l('Le module injecte automatiquement un bloc de notification dans les emails de commande :') . '</p>
-                <ul>
-                    <li><strong>' . $this->l('Email client') . '</strong> (' . $this->l('order_conf') . ') — ' . $this->l('bloc bleu "Commande passée en magasin"') . '</li>
-                    <li><strong>' . $this->l('Email admin') . '</strong> (' . $this->l('backoffice_order / new_order') . ') — ' . $this->l('bloc orange "COMMANDE BORNE EN BOUTIQUE"') . '</li>
-                </ul>
-                <p><em>' . $this->l('Aucune modification manuelle de vos templates email n\'est nécessaire.') . '</em></p>
+
+                <div class="row">
+                    <div class="col-lg-6">
+
+                        <h4><i class="icon-play-circle"></i> ' . $this->l('Démarrage rapide') . '</h4>
+                        <ol>
+                            <li>' . $this->l('Sur la tablette, ouvrez :') . ' <code>' . $kioskUrl . '</code></li>
+                            <li>' . $this->l('Saisissez le PIN à 4 chiffres.') . '</li>
+                            <li>' . $this->l('La boutique s\'ouvre en mode kiosque.') . '</li>
+                            <li>' . $this->l('Après chaque commande, la session est réinitialisée automatiquement.') . '</li>
+                        </ol>
+
+                        <h4><i class="icon-cog"></i> ' . $this->l('Paramètres') . '</h4>
+                        <table class="table" style="font-size:13px;">
+                            <tbody>
+                                <tr>
+                                    <td><strong>' . $this->l('PIN') . '</strong></td>
+                                    <td>' . $this->l('Code à 4 chiffres pour activer la borne. Laissez vide pour conserver le PIN actuel.') . '</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>' . $this->l('Label borne') . '</strong></td>
+                                    <td>' . $this->l('Nom affiché dans les notes de commande et les emails (ex : Borne Maïsokv Strasbourg).') . '</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>' . $this->l('URL de redirection') . '</strong></td>
+                                    <td>' . $this->l('Page vers laquelle la tablette est redirigée après saisie du PIN (généralement l\'accueil boutique).') . '</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>' . $this->l('Durée du cookie') . '</strong></td>
+                                    <td>' . $this->l('Durée d\'activation de la borne en secondes (86400 = 24 h). Passé ce délai, le PIN doit être ressaisi.') . '</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>' . $this->l('Délai de reset') . '</strong></td>
+                                    <td>' . $this->l('Nombre de secondes avant réinitialisation automatique après la confirmation de commande.') . '</td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                    </div>
+                    <div class="col-lg-6">
+
+                        <h4><i class="icon-magic"></i> ' . $this->l('Comportements automatiques') . '</h4>
+                        <ul>
+                            <li>' . $this->l('Réinitialisation de session après chaque commande (panier, compte client, adresse).') . '</li>
+                            <li>' . $this->l('Note interne ajoutée à chaque commande : "Commande via borne – [Label] – [Date]".') . '</li>
+                            <li>' . $this->l('Mention sur le PDF de facture.') . '</li>
+                        </ul>
+
+                        <h4><i class="icon-envelope"></i> ' . $this->l('Notifications email') . '</h4>
+                        <p><span class="label label-success"><i class="icon-check"></i> ' . $this->l('Configuré automatiquement') . '</span></p>
+                        <ul>
+                            <li><strong>' . $this->l('Email client') . '</strong> — ' . $this->l('bloc bleu "Commande passée en magasin"') . '</li>
+                            <li><strong>' . $this->l('Email admin') . '</strong> — ' . $this->l('bloc orange "COMMANDE BORNE EN BOUTIQUE"') . '</li>
+                        </ul>
+                        <p><em>' . $this->l('Aucune modification manuelle des templates n\'est nécessaire.') . '</em></p>
+
+                        <h4><i class="icon-shield"></i> ' . $this->l('Sécurité') . '</h4>
+                        <ul>
+                            <li>' . $this->l('Protection brute-force : 5 tentatives de PIN incorrectes → blocage 10 min par IP.') . '</li>
+                            <li>' . $this->l('Cookie HTTP sécurisé (pas de session PHP) : compatible multi-onglets et serveurs PHP-FPM.') . '</li>
+                            <li>' . $this->l('Le PIN n\'est jamais affiché en clair dans le BO.') . '</li>
+                        </ul>
+
+                    </div>
+                </div>
+
             </div>
         </div>';
 
