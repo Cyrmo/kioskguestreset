@@ -371,15 +371,16 @@ class KioskGuestReset extends Module
                     <li>' . $this->l('La tablette est redirigée vers la boutique en mode kiosque.') . '</li>
                     <li>' . $this->l('Après chaque commande, la session est automatiquement nettoyée.') . '</li>
                 </ol>
-                <h4>' . $this->l('Variables email disponibles') . '</h4>
-                <p>' . $this->l('Pour identifier les commandes kiosque dans vos templates email, ajoutez ces variables :') . '</p>
+                <h4>' . $this->l('Notifications email kiosque') . '</h4>
+                <p>
+                    <span class="label label-success"><i class="icon-check"></i> ' . $this->l('Configuré automatiquement') . '</span>
+                </p>
+                <p>' . $this->l('Le module injecte automatiquement un bloc de notification dans les emails de commande :') . '</p>
                 <ul>
-                    <li><code>{kgr_is_borne}</code> – ' . $this->l('1 si commande kiosque, 0 sinon') . '</li>
-                    <li><code>{kgr_order_origin}</code> – ' . $this->l('Ex: Borne en boutique – Strasbourg') . '</li>
-                    <li><code>{kgr_shop_name}</code> – ' . $this->l('Nom de la boutique PrestaShop') . '</li>
+                    <li><strong>' . $this->l('Email client') . '</strong> (' . $this->l('order_conf') . ') — ' . $this->l('bloc bleu "Commande passée en magasin"') . '</li>
+                    <li><strong>' . $this->l('Email admin') . '</strong> (' . $this->l('backoffice_order / new_order') . ') — ' . $this->l('bloc orange "COMMANDE BORNE EN BOUTIQUE"') . '</li>
                 </ul>
-                <p><em>' . $this->l('Exemple dans votre template order_conf.html :') . '</em></p>
-                <pre>{if $kgr_is_borne == \'1\'}&lt;p&gt;Mode de commande : {$kgr_order_origin}&lt;/p&gt;{/if}</pre>
+                <p><em>' . $this->l('Aucune modification manuelle de vos templates email n\'est nécessaire.') . '</em></p>
             </div>
         </div>';
 
